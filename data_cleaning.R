@@ -181,10 +181,6 @@ modify_events_dataframe <- function(df) {
 # Assuming euro2024_events is your dataframe
 df_modified <- modify_events_dataframe(euro2024_events)
 
-testing <- subset(euro2024_events, type.name == "carry")
-
-testing2 <- subset(euro2024_events, !is.na(dribble.overrun))
-
 drops <- c(
   "pass.height.name",
   "pass.height.id",
@@ -307,11 +303,18 @@ drops <- c(
   "shot.redirect",
   "shot.follows_dribble",
   "shot_impact_height",
-  "ball_recovery.offensive"
+  "ball_recovery.offensive",
+  "goalkeeper.punched_out",
+  "injury_stoppage.in_chain",
+  "index",
+  "minute",
+  "second",
+  "milliseconds",
+  "StartOfPossesion",
+  "TimeToPossEnd",
+  "OpposingTeam.id",
+  "type.id",
+  "position.id"
 )
 
 removed_columns_df <- df_modified[, !(colnames(df_modified) %in% drops)]
-
-goal_keeper_rows <- df_modified[grep("goalkeeper", df_modified[["type.name"]], ignore.case = TRUE), ]
-
-end_location_cols <- removed_columns_df[, grep("end_location", colnames(removed_columns_df))]
