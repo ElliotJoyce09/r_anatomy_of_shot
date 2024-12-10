@@ -221,19 +221,19 @@ for (match_id in list_of_match_ids) {
 }
 
 
-
+#
 # test3 <- measure_of_defensive_area_occupied(test)
-#
-# ggplot(filter(zone_counts, period == 1), aes(x = timestamp, y = row_sum, colour = team)) +
+# 
+# ggplot(filter(zone_counts, period == 1), aes(x = timestamp, y = row_sum, colour = team)) + 
 #   geom_smooth(method = "loess", span = 0.1) +  # Smooth line for running average
 #   theme_minimal() +
 #   labs(title = "Running Average of Row Sum", x = "Timestamp", y = "Row Sum")
-#
-# ggplot(filter(zone_counts, period == 2), aes(x = timestamp, y = row_sum, colour = team)) +
+# 
+# ggplot(filter(zone_counts, period == 2), aes(x = timestamp, y = row_sum, colour = team)) + 
 #   geom_smooth(method = "loess", span = 0.1) +  # Smooth line for running average
 #   theme_minimal() +
 #   labs(title = "Running Average of Row Sum", x = "Timestamp", y = "Row Sum")
-#
+# 
 # team_averages <- zone_counts %>%
 #   group_by(team) %>%
 #   summarize(average_row_sum = mean(row_sum, na.rm = TRUE))
