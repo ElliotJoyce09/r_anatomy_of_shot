@@ -199,7 +199,7 @@ measure_of_defensive_area_occupied <- function(dataframe) {
 list_of_match_ids <- unique(merged_dataframe$match_id)
 
 for (match_id in list_of_match_ids) {
-  dataframe_name <- paste0(match_id, "_mdao_dataframe")
+  dataframe_name <- paste0("mdao_dataframe_", match_id)
   if (!exists(dataframe_name)) {
     filtered_df <- merged_dataframe[merged_dataframe$match_id == match_id, ]
     mdao_df <- measure_of_defensive_area_occupied(filtered_df)
@@ -208,8 +208,8 @@ for (match_id in list_of_match_ids) {
 }
 
 for (match_id in list_of_match_ids) {
-  dataframe_name <- paste0(match_id, "_mdao_dataframe")
-  average_dataframe_name <- paste0(match_id, "_average_mdao_dataframe")
+  dataframe_name <- paste0("mdao_dataframe_", match_id)
+  average_dataframe_name <- paste0("average_mdao_dataframe_", match_id)
   if (exists(dataframe_name) && !exists(average_dataframe_name)) {
     mdao_df <- get(dataframe_name) 
     average_mdao_df <- mdao_df %>%
@@ -219,6 +219,8 @@ for (match_id in list_of_match_ids) {
     assign(average_dataframe_name, average_mdao_df)
   }
 }
+
+
 
 
 #
