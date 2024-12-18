@@ -46,6 +46,23 @@ euro2024_360data <- free_allevents_360(euro2024matches, Parallel = TRUE) %>%
 
 merged_dataframe <- join_360_data(cleaned_dataframe, euro2024_360data)
 
+xG_dataframe <- cleaned_dataframe %>%
+  group_by(match_id, team.name) %>%
+  summarise(sum_xG = sum(shot.statsbomb_xg, na.rm = TRUE)) %>%
+  rename(team = team.name, match = match_id)
+
+opposition_teams <- c()
+
+for (match_id in unique(xG_dataframe$match)) {
+  match_data <- subset(xG_dataframe, match == match_id)
+  for (i in 1:nrow(match_data)) {
+    opposition_teams[xG_dataframe$match == match_id &
+                       xG_dataframe$team == match_data$team[i]] <- match_data$team[match_data$team != match_data$team[i]]
+  }
+}
+
+xG_dataframe$opposition_team <- opposition_teams
+
 measure_of_defensive_area_occupied <- function(dataframe) {
   dataframe <- dataframe %>%
     filter(period != 5)
@@ -101,9 +118,7 @@ measure_of_defensive_area_occupied <- function(dataframe) {
         timestamp = if_else(
           period == 3,
           as_hms(as.POSIXct(timestamp, format = "%H:%M:%OS")) +
-            difftime(as_hms(
-              timestamp_2
-            ), as_hms(
+            difftime(as_hms(timestamp_2), as_hms(
               as.POSIXct("00:00:00", format = "%H:%M:%OS")
             )),
           as_hms(as.POSIXct(timestamp, format = "%H:%M:%OS"))
@@ -111,9 +126,7 @@ measure_of_defensive_area_occupied <- function(dataframe) {
         timestamp = if_else(
           period == 4,
           as_hms(as.POSIXct(timestamp, format = "%H:%M:%OS")) +
-            difftime(as_hms(
-              timestamp_3
-            ), as_hms(
+            difftime(as_hms(timestamp_3), as_hms(
               as.POSIXct("00:00:00", format = "%H:%M:%OS")
             )),
           as_hms(as.POSIXct(timestamp, format = "%H:%M:%OS"))
@@ -204,14 +217,14 @@ for (match_id in list_of_match_ids) {
     filtered_df <- merged_dataframe[merged_dataframe$match_id == match_id, ]
     mdao_df <- measure_of_defensive_area_occupied(filtered_df)
     assign(dataframe_name, mdao_df)
-  } 
+  }
 }
 
 for (match_id in list_of_match_ids) {
   dataframe_name <- paste0("mdao_dataframe_", match_id)
   average_dataframe_name <- paste0("average_mdao_dataframe_", match_id)
   if (exists(dataframe_name) && !exists(average_dataframe_name)) {
-    mdao_df <- get(dataframe_name) 
+    mdao_df <- get(dataframe_name)
     average_mdao_df <- mdao_df %>%
       group_by(team) %>%
       summarize(average_row_sum = mean(row_sum, na.rm = TRUE)) %>%
@@ -220,22 +233,60 @@ for (match_id in list_of_match_ids) {
   }
 }
 
+for (match_id in list_of_match_ids) {
+  dataframe_name <- paste0("mdao_dataframe_", match_id)
+  oop_average_dataframe_name <- paste0("oop_average_mdao_dataframe_", match_id)
+  if (exists(dataframe_name) &&
+      !exists(oop_average_dataframe_name)) {
+    mdao_df <- get(dataframe_name)
+    oop_average_mdao_df <- mdao_df %>%
+      filter(team != possession_team.name) %>%
+      group_by(team, possession_team.name) %>%
+      summarize(average_row_sum = mean(row_sum, na.rm = TRUE)) %>%
+      mutate(match = match_id)
+    assign(oop_average_dataframe_name, oop_average_mdao_df)
+  }
+}
 
 
+oop_average_mdao_dataframes_to_bind <- ls(pattern = "^oop_average_mdao_dataframe")
+list_of_oop_average_mdao_dataframes <- lapply(oop_average_mdao_dataframes_to_bind, get)
+combined_oop_average_mdao_dataframe <- bind_rows(list_of_oop_average_mdao_dataframes)
 
-#
-# test3 <- measure_of_defensive_area_occupied(test)
-# 
-# ggplot(filter(zone_counts, period == 1), aes(x = timestamp, y = row_sum, colour = team)) + 
-#   geom_smooth(method = "loess", span = 0.1) +  # Smooth line for running average
-#   theme_minimal() +
-#   labs(title = "Running Average of Row Sum", x = "Timestamp", y = "Row Sum")
-# 
-# ggplot(filter(zone_counts, period == 2), aes(x = timestamp, y = row_sum, colour = team)) + 
-#   geom_smooth(method = "loess", span = 0.1) +  # Smooth line for running average
-#   theme_minimal() +
-#   labs(title = "Running Average of Row Sum", x = "Timestamp", y = "Row Sum")
-# 
-# team_averages <- zone_counts %>%
-#   group_by(team) %>%
-#   summarize(average_row_sum = mean(row_sum, na.rm = TRUE))
+mdao_correlation_dataframe <- combined_oop_average_mdao_dataframe %>%
+  left_join(xG_dataframe, by = c("team" = "opposition_team", "match")) %>%
+  select(-c(possession_team.name, team.y)) %>%
+  rename("opposition_xG" = "sum_xG")
+
+group_stage_list_of_match_ids <- unique(filter(euro2024matches, competition_stage.name == "Group Stage")$match_id)
+
+sum_group_stage_mdao_correlation_dataframe <- mdao_correlation_dataframe %>%
+  filter(match %in% group_stage_list_of_match_ids) %>%
+  group_by(team) %>%
+  summarise(
+    average_row_sum = mean(average_row_sum),
+    sum_opposition_xG = sum(opposition_xG, na.rm = TRUE)
+  )
+
+mdao_correlation <- cor(
+  mdao_correlation_dataframe$opposition_xG,
+  mdao_correlation_dataframe$average_row_sum,
+  method = "pearson"
+)
+sum_mdao_correlation <- cor(
+  sum_group_stage_mdao_correlation_dataframe$sum_opposition_xG,
+  sum_group_stage_mdao_correlation_dataframe$average_row_sum,
+  method = "pearson"
+)
+
+ggplot(mdao_correlation_dataframe,
+       aes(x = average_row_sum, y = opposition_xG)) +
+  geom_point()
+
+ggplot(
+  sum_group_stage_mdao_correlation_dataframe,
+  aes(x = average_row_sum, y = sum_opposition_xG)
+) +
+  geom_point(
+  )
+
