@@ -18,7 +18,12 @@ if (!require(ggplot2)) {
   library(ggplot2)
 }
 
-detach("package:statsbombCleaning", unload = TRUE)
+if (!require(hms)) {
+  install.packages("hms")
+  library(hms)
+}
+
+## detach("package:statsbombCleaning", unload = TRUE)
 
 if (!require(statsbombCleaning)) {
   install_github("ElliotJoyce09/statsbombCleaning")
@@ -61,11 +66,24 @@ pressure_forcing_failure_dataframe <- defensive_forced_pressures(cleaned_datafra
 #CHECK DISTANCE
 unsuccessful_pressure_dataframe <- unsuccessful_defensive_pressures(cleaned_dataframe)
 
-
 modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
-  mutate(timestamp = as_hms(as.POSIXct(timestamp, format = "%M:%S")))
-  
-  
+  mutate(timestamp = as_hms(as.POSIXct(timestamp))) %>%
+  left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
+  left_join(progressive_actions_dataframe, by = "id") %>%
+  left_join(defenders_removed_dataframe, by = "id") %>%
+  left_join(turnover_dataframe, by = "id") %>%
+  left_join(pressure_forcing_failure_dataframe, by = "id") %>%
+  left_join(unsuccessful_pressure_dataframe, by = "id") %>%
+  select(match_id, timestamp, type.name, possession_team.name.y, possession, timeinposs, shot.statsbomb_xg, team, row_sum, progressive_action, number_of_defenders_removed, turnover_distance_to_own_goal, pressure_forcing_failure, forced_failiure_pressure_distance_to_opposition_goal, failed_defensive_pressure, unsuccessful_pressure_distance_to_own_goal) %>%
+  filter(!is.na(row_sum)) %>%
+  rename(possession_team = possession_team.name.y) %>%
+  group_by(match_id, timestamp, type.name, possession_team, possession, timeinposs, shot.statsbomb_xg, progressive_action, number_of_defenders_removed, turnover_distance_to_own_goal, pressure_forcing_failure, forced_failiure_pressure_distance_to_opposition_goal, failed_defensive_pressure, unsuccessful_pressure_distance_to_own_goal) %>%
+  summarise(
+    possession_row_sum = sum(row_sum[team == possession_team]),
+    oop_row_sum = sum(row_sum[team != possession_team])
+  )
+
+
 
 # defensive_actions <- cleaned_dataframe %>%
 #   filter(location != "NULL") %>%
