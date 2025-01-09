@@ -67,22 +67,94 @@ pressure_forcing_failure_dataframe <- defensive_forced_pressures(cleaned_datafra
 unsuccessful_pressure_dataframe <- unsuccessful_defensive_pressures(cleaned_dataframe)
 
 modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
-  mutate(timestamp = as_hms(as.POSIXct(timestamp))) %>%
+  mutate(timestamp = as_hms(as.POSIXct(timestamp, "GMT"))) %>%
   left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
   left_join(progressive_actions_dataframe, by = "id") %>%
   left_join(defenders_removed_dataframe, by = "id") %>%
   left_join(turnover_dataframe, by = "id") %>%
   left_join(pressure_forcing_failure_dataframe, by = "id") %>%
   left_join(unsuccessful_pressure_dataframe, by = "id") %>%
-  select(match_id, timestamp, type.name, possession_team.name.y, possession, timeinposs, shot.statsbomb_xg, team, row_sum, progressive_action, number_of_defenders_removed, turnover_distance_to_own_goal, pressure_forcing_failure, forced_failiure_pressure_distance_to_opposition_goal, failed_defensive_pressure, unsuccessful_pressure_distance_to_own_goal) %>%
+  select(
+    match_id,
+    timestamp,
+    type.name,
+    possession_team.name.y,
+    possession,
+    timeinposs,
+    shot.statsbomb_xg,
+    team,
+    row_sum,
+    progressive_action,
+    number_of_defenders_removed,
+    turnover_distance_to_own_goal,
+    pressure_forcing_failure,
+    forced_failiure_pressure_distance_to_opposition_goal,
+    failed_defensive_pressure,
+    unsuccessful_pressure_distance_to_own_goal
+  ) %>%
   filter(!is.na(row_sum)) %>%
   rename(possession_team = possession_team.name.y) %>%
-  group_by(match_id, timestamp, type.name, possession_team, possession, timeinposs, shot.statsbomb_xg, progressive_action, number_of_defenders_removed, turnover_distance_to_own_goal, pressure_forcing_failure, forced_failiure_pressure_distance_to_opposition_goal, failed_defensive_pressure, unsuccessful_pressure_distance_to_own_goal) %>%
-  summarise(
-    possession_row_sum = sum(row_sum[team == possession_team]),
-    oop_row_sum = sum(row_sum[team != possession_team])
-  )
+  group_by(
+    match_id,
+    timestamp,
+    type.name,
+    possession_team,
+    possession,
+    timeinposs,
+    shot.statsbomb_xg,
+    progressive_action,
+    number_of_defenders_removed,
+    turnover_distance_to_own_goal,
+    pressure_forcing_failure,
+    forced_failiure_pressure_distance_to_opposition_goal,
+    failed_defensive_pressure,
+    unsuccessful_pressure_distance_to_own_goal
+  ) %>%
+  summarise(possession_row_sum = sum(row_sum[team == possession_team]),
+            oop_row_sum = sum(row_sum[team != possession_team])) %>%
+  group_by(match_id) %>%
+  mutate(shot_in_past_10_events = as.integer(row_number() %in% unlist(lapply(which(!is.na(shot.statsbomb_xg)), function(x)
+    max(1, x - 10):x)))) %>%
+  mutate(
+    # Find the next non-NA shot.statsbomb_xg row index
+    next_shot_index = sapply(row_number(), function(x) {
+      which(!is.na(shot.statsbomb_xg) & row_number() >= x)[1]
+    }),
+    # Get the possession_team for the next shot
+    next_shot_team = ifelse(!is.na(next_shot_index), possession_team[next_shot_index], NA_character_),
+    # Assign possession_shot_in_past_10_events
+    possession_shot_in_past_10_events = ifelse(
+      shot_in_past_10_events == 1 &
+        possession_team == next_shot_team,
+      1,
+      0
+    ),
+    # Assign oop_shot_in_past_10_events
+    oop_shot_in_past_10_events = ifelse(
+      shot_in_past_10_events == 1 &
+        possession_team != next_shot_team,
+      1,
+      0
+    )
+  ) %>%
+  select(-next_shot_index, -next_shot_team) %>%
+  ungroup()
 
+
+mean_possession_differences <- modelling_dataframe %>%
+  group_by(possession_shot_in_past_10_events) %>%
+  summarise(percentage_progressive_action = mean(replace(progressive_action, is.na(progressive_action), 0)),
+            mean_number_of_defenders_removed = mean(number_of_defenders_removed, na.rm = TRUE),
+            percentage_pressure_forcing_faliure = mean(replace(pressure_forcing_failure, is.na(pressure_forcing_failure), 0)),
+            mean_forced_faliure_pressure_distance_to_own_goal = mean(forced_failiure_pressure_distance_to_opposition_goal, na.rm = TRUE),
+            mean_possession_row_sum = mean(possession_row_sum))
+
+mean_oop_differences <- modelling_dataframe %>%
+  group_by(oop_shot_in_past_10_events) %>%
+  summarise(mean_turnover_distance_to_own_goal = mean(turnover_distance_to_own_goal, na.rm = TRUE),
+            percentage_failed_defensive_pressure = mean(replace(failed_defensive_pressure, is.na(failed_defensive_pressure), 0)),
+            mean_unsuccessful_pressure_distance_to_own_goal = mean(unsuccessful_pressure_distance_to_own_goal, na.rm = TRUE),
+            mean_oop_row_sum = mean(oop_row_sum))
 
 
 # defensive_actions <- cleaned_dataframe %>%
