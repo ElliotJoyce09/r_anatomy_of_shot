@@ -69,11 +69,13 @@ measure_of_defensive_area_occupied <- function(dataframe) {
       )
   }
   dataframe_cleaned <- dataframe_cleaned %>%
-    mutate(team = ifelse(
-      teammate,
-      team.name,
-      ifelse(team.name == team_names[1], team_names[2], team_names[1])
-    )) %>%
+    group_by(match_id) %>%
+    mutate(
+      team_1 = unique(team.name)[1],
+      team_2 = unique(team.name)[2],
+      team = if_else(teammate, team.name, if_else(team.name == team_1, team_2, team_1))
+    ) %>%
+    ungroup() %>%
     group_by(timestamp) %>%
     filter(id == first(id)) %>%
     ungroup()

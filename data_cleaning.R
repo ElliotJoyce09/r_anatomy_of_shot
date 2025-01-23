@@ -23,6 +23,27 @@ if (!require(hms)) {
   library(hms)
 }
 
+if (!require(pROC)) {
+  install.packages("pROC")
+  library(pROC)
+}
+
+if (!require(caret)) {
+  install.packages("caret")
+  library(caret)
+}
+
+if (!require(e1071)) {
+  install.packages("e1071")
+  library(e1071)
+}
+
+if (!require(glmnet)) {
+  install.packages("glmnet")
+  library(glmnet)
+}
+
+
 ## detach("package:statsbombCleaning", unload = TRUE)
 
 if (!require(statsbombCleaning)) {
@@ -31,6 +52,7 @@ if (!require(statsbombCleaning)) {
 }
 
 source("indicator_functions.R")
+set.seed(333)
 
 competitions <- FreeCompetitions() %>%
   filter(!is.na(match_available_360))
@@ -156,6 +178,312 @@ mean_oop_differences <- modelling_dataframe %>%
             mean_unsuccessful_pressure_distance_to_own_goal = mean(unsuccessful_pressure_distance_to_own_goal, na.rm = TRUE),
             mean_oop_row_sum = mean(oop_row_sum))
 
+
+shot_distribution <- modelling_dataframe %>%
+  mutate(in_seconds = as.numeric(as.difftime(timestamp, format = "%H:%M:%OS"))) %>%
+  mutate(interval = ceiling(in_seconds/300)) %>%
+  group_by(match_id, possession_team, interval) %>%
+  summarise(number_of_shots = sum(!is.na(shot.statsbomb_xg), na.rm = TRUE))
+
+number_of_shots_mean <- mean(shot_distribution$number_of_shots)
+number_of_shots_variance <- var(shot_distribution$number_of_shots)
+
+histogram_of_shots <- ggplot(shot_distribution, aes(x = number_of_shots)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 6, fill = "#4A7C59", colour = "#FAF3DD") +
+  scale_x_continuous(
+    breaks = 0:5 # Specify tick marks for 0, 1, 2, 3, 4, and 5
+  ) +
+  ##stat_function(fun = function(x) dpois(round(x), lambda = number_of_shots_mean), geom = "point", n = 6, color = "red", size = 2) +
+  labs(
+    title = "Histogram of the Number of Shots",
+    subtitle = "For each 5-minute interval, for each team",
+    x = "Number of Shots",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+ggsave("histogram_of_shots.png", plot = histogram_of_shots, dpi = 200)
+
+histogram_of_shots_with_poisson <- ggplot(shot_distribution, aes(x = number_of_shots)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 6, fill = "#4A7C59", colour = "#FAF3DD") +
+  scale_x_continuous(
+    breaks = 0:5 # Specify tick marks for 0, 1, 2, 3, 4, and 5
+  ) +
+  stat_function(fun = function(x) dpois(round(x), lambda = number_of_shots_mean), geom = "point", n = 6, color = "#CC441C", size = 2) +
+  labs(
+    title = "Histogram of the Number of Shots, with the fitted Poisson probability mass function",
+    subtitle = "For each 5-minute interval, for each team",
+    x = "Number of Shots",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+ggsave("histogram_of_shots_with_poisson.png", plot = histogram_of_shots_with_poisson, dpi = 200)
+
+merged_shot_distribution <- shot_distribution %>%
+  group_by(match_id, interval) %>%
+  summarise(
+    team_1_shots = first(number_of_shots),
+    team_2_shots = ifelse(n() > 1, nth(number_of_shots, 2), 0),
+    .groups = "drop"
+  )
+
+correlation_of_shots <- cor(merged_shot_distribution$team_1_shots, merged_shot_distribution$team_2_shots, method = "pearson")
+
+change_timestamp <- function(df) {
+  df <- df %>%
+    mutate(timestamp = as_hms(timestamp)) %>%
+    filter(period != 5) %>%
+    group_by(match_id) %>%
+    mutate(
+      max_timestamp_1 = ifelse(any(period == 1), max(timestamp[period == 1], na.rm = TRUE), NA_real_),
+      timestamp = ifelse(period == 2, as_hms(timestamp + max_timestamp_1), timestamp)
+    ) %>%
+    ungroup()
+  
+  df <- df %>%
+    group_by(match_id) %>%
+    mutate(
+      max_timestamp_2 = ifelse(any(period == 2), max(timestamp[period == 2], na.rm = TRUE), NA_real_),
+      timestamp = ifelse(period == 3, as_hms(timestamp + max_timestamp_2), timestamp)
+    ) %>%
+    ungroup()
+  
+  df <- df %>%
+    group_by(match_id) %>%
+    mutate(
+      max_timestamp_3 = ifelse(any(period == 3), max(timestamp[period == 3], na.rm = TRUE), NA_real_),
+      timestamp = ifelse(period == 4, as_hms(timestamp + max_timestamp_3), timestamp)
+    ) %>%
+    ungroup()
+  
+  return(df)
+}
+
+### NOT WORKING IDK
+basic_modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
+  mutate(timestamp = as_hms(as.POSIXct(timestamp, "GMT"))) %>%
+  left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
+  left_join(progressive_actions_dataframe, by = "id") %>%
+  left_join(defenders_removed_dataframe, by = "id") %>%
+  left_join(turnover_dataframe, by = "id") %>%
+  left_join(pressure_forcing_failure_dataframe, by = "id") %>%
+  left_join(unsuccessful_pressure_dataframe, by = "id") %>%
+  mutate(in_seconds = as.numeric(as.difftime(timestamp, format = "%H:%M:%OS"))) %>%
+  mutate(interval = ceiling(in_seconds / 300)) %>%
+  select(id, match_id, interval, team, possession_team.name.y, shot.statsbomb_xg, row_sum,
+         progressive_action,
+         number_of_defenders_removed,
+         turnover_distance_to_own_goal,
+         pressure_forcing_failure,
+         forced_failiure_pressure_distance_to_opposition_goal,
+         failed_defensive_pressure,
+         unsuccessful_pressure_distance_to_own_goal) %>%
+  filter(!is.na(team)) %>%
+  group_by(id) %>%
+  mutate(other_row_sum = ifelse(row_number() == 1, lead(row_sum), lag(row_sum))) %>%
+  ungroup() %>%  
+  ## filter(as.character(team.name) == as.character(team)) %>%
+  filter(!is.na(match_id), !is.na(interval), !is.na(team)) %>%
+  group_by(match_id, interval, team) %>%
+  summarise(
+    number_of_shots = sum(!is.na(shot.statsbomb_xg) & team == possession_team.name.y, na.rm = TRUE),
+    average_row_sum = mean(row_sum, na.rm = TRUE),
+    average_opposition_row_sum = mean(other_row_sum, na.rm = TRUE),
+    number_of_progressive_actions = sum(!is.na(progressive_action) & team == possession_team.name.y, na.rm = TRUE),
+    number_of_defender_removing_actions = sum(!is.na(number_of_defenders_removed) & team == possession_team.name.y, na.rm = TRUE),
+    sum_of_defenders_removed = sum(number_of_defenders_removed[team == possession_team.name.y], na.rm = TRUE),
+    number_of_high_defender_removing_actions = sum(number_of_defenders_removed > 5 & team == possession_team.name.y, na.rm = TRUE),
+    number_of_turnovers_by_opposition = sum(!is.na(turnover_distance_to_own_goal) & team != possession_team.name.y, na.rm = TRUE),
+    number_of_own_half_turnovers_by_opposition = sum(turnover_distance_to_own_goal <= 60 & team != possession_team.name.y, na.rm = TRUE),
+    closest_turnover_by_opposition_to_their_goal = 
+      if (any(team != possession_team.name.y & !is.na(turnover_distance_to_own_goal))) {
+        min(turnover_distance_to_own_goal[team != possession_team.name.y], na.rm = TRUE)
+      } else {
+        NA
+      }
+  ) %>%
+  filter(!is.na(average_opposition_row_sum)) 
+
+boxplot_of_opposition_MDAO_against_shots <- ggplot(basic_modelling_dataframe, aes(x = as.factor(number_of_shots), y = average_opposition_row_sum)) +
+  geom_boxplot(fill = "#4A7C59") +
+  labs(title = "Box-plot of the Average Opposition MDAO for each Number of Shots",
+       subtitle = "For each 5-minute interval, for each team",
+       x = "Number of Shots",
+       y = "Average Opposition MDAO") +
+  theme_minimal()
+
+ggsave("boxplot_of_opposition_MDAO_against_shots.png", plot = boxplot_of_opposition_MDAO_against_shots, dpi = 200)
+
+#### there is no autocorrelation so 
+acf_result <- basic_modelling_dataframe %>%
+  group_by(match_id, team) %>%
+  summarise(
+    acf_values = list(acf(number_of_shots, plot = FALSE)$acf)
+  ) %>%
+  mutate(acf_values = map(acf_values, ~ set_names(.x, paste0("lag_", seq_along(.x) - 1)))) %>%
+  unnest_wider(acf_values, names_sep = "_") %>%
+  ungroup()
+
+average_acf <- acf_result %>%
+  summarise(across(starts_with("acf_values_"), mean, na.rm = TRUE))
+
+####
+
+
+not_so_basic_modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
+  mutate(timestamp = as_hms(as.POSIXct(timestamp, "GMT"))) %>%
+  left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
+  mutate(in_seconds = as.numeric(as.difftime(timestamp, format = "%H:%M:%OS"))) %>%
+  mutate(interval = ceiling(in_seconds / 300)) %>%
+  select(id, match_id, interval, team.name, team, shot.statsbomb_xg, row_sum) %>%
+  filter(!is.na(team)) %>%
+  group_by(id) %>%
+  mutate(other_row_sum = ifelse(row_number() == 1, lead(row_sum), lag(row_sum))) %>%
+  ungroup() %>%  filter(as.character(team.name) == as.character(team)) %>%
+  filter(!is.na(match_id), !is.na(interval), !is.na(team)) %>%
+  group_by(match_id, interval, team) %>%
+  summarise(
+    sum_of_xG = sum(shot.statsbomb_xg, na.rm = TRUE),
+    average_row_sum = mean(row_sum, na.rm = TRUE),
+    average_opposition_row_sum = mean(other_row_sum, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(average_opposition_row_sum)) 
+
+
+ggplot(not_so_basic_modelling_dataframe, aes(x = average_row_sum, y = sum_of_xG)) +
+  geom_point() +
+  geom_smooth(method = "loess")
+
+ggplot(not_so_basic_modelling_dataframe, aes(x = sum_of_xG)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of sum_of_xG", x = "sum_of_xG", y = "Count") +
+  theme_minimal()
+
+ggplot(not_so_basic_modelling_dataframe, aes(x = sum_of_xG)) +
+  geom_density(fill = "green", alpha = 0.5) +
+  labs(title = "Density Plot of sum_of_xG", x = "sum_of_xG", y = "Density") +
+  theme_minimal()
+
+no_zero_not_so_basic_modelling_dataframe <- not_so_basic_modelling_dataframe %>%
+  filter(sum_of_xG != 0)
+
+ggplot(no_zero_not_so_basic_modelling_dataframe, aes(x = average_row_sum, y = sum_of_xG)) +
+  geom_point() +
+  geom_smooth(method = "loess")
+
+ggplot(no_zero_not_so_basic_modelling_dataframe, aes(x = sum_of_xG)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of sum_of_xG", x = "sum_of_xG", y = "Count") +
+  theme_minimal()
+
+ggplot(no_zero_not_so_basic_modelling_dataframe, aes(x = sum_of_xG)) +
+  geom_density(fill = "green", alpha = 0.5) +
+  labs(title = "Density Plot of sum_of_xG", x = "sum_of_xG", y = "Density") +
+  theme_minimal()
+
+
+logit_modelling_dataframe <- basic_modelling_dataframe %>%
+  mutate(shots_occur = ifelse(number_of_shots == 0, 0, 1))
+
+logit_model <- glm(shots_occur ~ average_opposition_row_sum, data = logit_modelling_dataframe, family = binomial)
+summary(logit_model)
+
+roc_curve <- roc(logit_modelling_dataframe$shots_occur, fitted(logit_model))
+plot(roc_curve)
+
+auc(roc_curve)
+
+predicted_probs <- predict(logit_model, type = "response")
+pred_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+table(pred_classes, logit_modelling_dataframe$shots_occur)
+
+
+find_optimal_threshold <- function(predicted_probs, true_lables) {
+  thresholds <- seq(0, 1, by = 0.01)
+  performance_metrics <- data.frame(threshold = thresholds, accuracy = NA, F1_score = NA)
+  
+  for(t in thresholds) {
+    predicted_classes <- ifelse(predicted_probs > t, 1, 0)
+    TP <- sum(true_lables == 1 & predicted_classes == 1)
+    FP <- sum(true_lables == 0 & predicted_classes == 1)
+    FN <- sum(true_lables == 1 & predicted_classes == 0)
+    TN <- sum(true_lables == 0 & predicted_classes == 0)
+    precision <- TP / (TP + FP)
+    recall <- TP / (TP + FN)
+    confusion_matrix <- confusionMatrix(as.factor(predicted_classes), as.factor(true_lables))
+    performance_metrics[performance_metrics$threshold == t, "accuracy"] <- confusion_matrix$overall['Accuracy']
+    performance_metrics[performance_metrics$threshold == t, "F1_score"] <- 2 * (precision * recall) / (precision + recall)
+  }
+  return(performance_metrics)
+}
+
+# highest F1 score is 0.606 at threshold 0.28
+metrics <-  find_optimal_threshold(predicted_probs, logit_modelling_dataframe$shots_occur)
+
+# SVM NOT GOOD!
+svm_model <- svm(shots_occur ~ average_opposition_row_sum, data = logit_modelling_dataframe, type = "C-classification", kernel = "radial", probability = TRUE)
+summary(svm_model)
+
+roc_curve <- roc(logit_modelling_dataframe$shots_occur, as.numeric(fitted(svm_model)))
+plot(roc_curve)
+
+auc(roc_curve)
+
+predicted_probs <- attr(predict(svm_model, logit_modelling_dataframe, probability = TRUE), "probabilities")[, 2]
+# highest F1 score is 0.56 at threshold 0.29
+metrics <-  find_optimal_threshold(predicted_probs, logit_modelling_dataframe$shots_occur)
+
+nb_model <- naiveBayes(shots_occur ~ average_opposition_row_sum, data = logit_modelling_dataframe)
+
+predicted_probs <- predict(nb_model, logit_modelling_dataframe, type = "raw")[, 2]
+# highest F1 score is 0.606 at threshold 0.27
+metrics <- find_optimal_threshold(predicted_probs, logit_modelling_dataframe$shots_occur)
+
+### NEEDS TWO OR MORE COLUMNS
+enet_model <- cv.glmnet(as.matrix(logit_modelling_dataframe[, "average_opposition_row_sum"]), logit_modelling_dataframe$shots_occur, family = "binomial", alpha = 0.5)
+
+
+
+
+
+###################################################
+model_shots <- glm(number_of_shots ~ average_opposition_row_sum, data = basic_modelling_dataframe, family = poisson)
+
+basic_modelling_dataframe$prediction <- predict(model_shots, type = "response")
+basic_modelling_dataframe$residuals <- residuals(model_shots, type = "pearson")
+
+ggplot(basic_modelling_dataframe, aes(x = prediction, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values",
+       x = "Fitted Values",
+       y = "Pearson Residuals") +
+  theme_minimal()
+
+
+
+# this is close to one so poisson holds!
+dispersion_stat <- sum(residuals(model_shots, type = "pearson")^2) / df.residual(model_shots)
+
+model_shots_negative_binomial <- glm.nb(number_of_shots ~ average_row_sum, data = basic_modelling_dataframe)
+
+likelihood_ratio_test <- anova(model_shots, model_shots_negative_binomial, test = "Chisq")
+
+further_model_shots <- glm(number_of_shots ~ average_row_sum + average_opposition_row_sum, data = basic_modelling_dataframe, family = poisson)
+
+basic_modelling_dataframe$second_prediction <- predict(further_model_shots, type = "response")
+
+ggplot(filter(basic_modelling_dataframe, match_id == "3930184"), aes(x = interval, colour = team)) +
+  geom_bar(aes(y = number_of_shots), stat = "identity", fill = "white") +
+  geom_point(aes(y = second_prediction)) +
+  theme_minimal()
+
+ggplot(basic_modelling_dataframe, aes(x = as.factor(number_of_shots), y = second_prediction)) +
+  geom_violin() +
+  theme_minimal()
 
 # defensive_actions <- cleaned_dataframe %>%
 #   filter(location != "NULL") %>%
