@@ -13,38 +13,10 @@ if (!require(tidyverse)) {
   library(tidyverse)
 }
 
-if (!require(ggplot2)) {
-  install.packages("ggplot2")
-  library(ggplot2)
-}
-
 if (!require(hms)) {
   install.packages("hms")
   library(hms)
 }
-
-if (!require(pROC)) {
-  install.packages("pROC")
-  library(pROC)
-}
-
-if (!require(caret)) {
-  install.packages("caret")
-  library(caret)
-}
-
-if (!require(e1071)) {
-  install.packages("e1071")
-  library(e1071)
-}
-
-if (!require(glmnet)) {
-  install.packages("glmnet")
-  library(glmnet)
-}
-
-
-## detach("package:statsbombCleaning", unload = TRUE)
 
 if (!require(statsbombCleaning)) {
   install_github("ElliotJoyce09/statsbombCleaning")
@@ -52,7 +24,29 @@ if (!require(statsbombCleaning)) {
 }
 
 source("indicator_functions.R")
-set.seed(333)
+
+# if (!require(pROC)) {
+#   install.packages("pROC")
+#   library(pROC)
+# }
+# 
+# if (!require(caret)) {
+#   install.packages("caret")
+#   library(caret)
+# }
+# 
+# if (!require(e1071)) {
+#   install.packages("e1071")
+#   library(e1071)
+# }
+# 
+# if (!require(glmnet)) {
+#   install.packages("glmnet")
+#   library(glmnet)
+# }
+
+
+# detach("package:statsbombCleaning", unload = TRUE)
 
 competitions <- FreeCompetitions() %>%
   filter(!is.na(match_available_360))
@@ -79,189 +73,11 @@ progressive_actions_dataframe <- progressive_actions(cleaned_dataframe)
 
 defenders_removed_dataframe <- defenders_removed(merged_dataframe)
 
-#CHECK DISTANCE
 turnover_dataframe <- turnovers(cleaned_dataframe)
 
-#CHECK DISTANCE
 pressure_forcing_failure_dataframe <- defensive_forced_pressures(cleaned_dataframe)
 
-#CHECK DISTANCE
-unsuccessful_pressure_dataframe <- unsuccessful_defensive_pressures(cleaned_dataframe)
-
-modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
-  mutate(timestamp = as_hms(as.POSIXct(timestamp, "GMT"))) %>%
-  left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
-  left_join(progressive_actions_dataframe, by = "id") %>%
-  left_join(defenders_removed_dataframe, by = "id") %>%
-  left_join(turnover_dataframe, by = "id") %>%
-  left_join(pressure_forcing_failure_dataframe, by = "id") %>%
-  left_join(unsuccessful_pressure_dataframe, by = "id") %>%
-  select(
-    match_id,
-    timestamp,
-    type.name,
-    possession_team.name.y,
-    possession,
-    timeinposs,
-    shot.statsbomb_xg,
-    team,
-    row_sum,
-    progressive_action,
-    number_of_defenders_removed,
-    turnover_distance_to_own_goal,
-    pressure_forcing_failure,
-    forced_failiure_pressure_distance_to_opposition_goal,
-    failed_defensive_pressure,
-    unsuccessful_pressure_distance_to_own_goal
-  ) %>%
-  filter(!is.na(row_sum)) %>%
-  rename(possession_team = possession_team.name.y) %>%
-  group_by(
-    match_id,
-    timestamp,
-    type.name,
-    possession_team,
-    possession,
-    timeinposs,
-    shot.statsbomb_xg,
-    progressive_action,
-    number_of_defenders_removed,
-    turnover_distance_to_own_goal,
-    pressure_forcing_failure,
-    forced_failiure_pressure_distance_to_opposition_goal,
-    failed_defensive_pressure,
-    unsuccessful_pressure_distance_to_own_goal
-  ) %>%
-  summarise(possession_row_sum = sum(row_sum[team == possession_team]),
-            oop_row_sum = sum(row_sum[team != possession_team])) %>%
-  group_by(match_id) %>%
-  mutate(shot_in_past_10_events = as.integer(row_number() %in% unlist(lapply(which(!is.na(shot.statsbomb_xg)), function(x)
-    max(1, x - 10):x)))) %>%
-  mutate(
-    # Find the next non-NA shot.statsbomb_xg row index
-    next_shot_index = sapply(row_number(), function(x) {
-      which(!is.na(shot.statsbomb_xg) & row_number() >= x)[1]
-    }),
-    # Get the possession_team for the next shot
-    next_shot_team = ifelse(!is.na(next_shot_index), possession_team[next_shot_index], NA_character_),
-    # Assign possession_shot_in_past_10_events
-    possession_shot_in_past_10_events = ifelse(
-      shot_in_past_10_events == 1 &
-        possession_team == next_shot_team,
-      1,
-      0
-    ),
-    # Assign oop_shot_in_past_10_events
-    oop_shot_in_past_10_events = ifelse(
-      shot_in_past_10_events == 1 &
-        possession_team != next_shot_team,
-      1,
-      0
-    )
-  ) %>%
-  select(-next_shot_index, -next_shot_team) %>%
-  ungroup()
-
-
-mean_possession_differences <- modelling_dataframe %>%
-  group_by(possession_shot_in_past_10_events) %>%
-  summarise(percentage_progressive_action = mean(replace(progressive_action, is.na(progressive_action), 0)),
-            mean_number_of_defenders_removed = mean(number_of_defenders_removed, na.rm = TRUE),
-            percentage_pressure_forcing_faliure = mean(replace(pressure_forcing_failure, is.na(pressure_forcing_failure), 0)),
-            mean_forced_faliure_pressure_distance_to_own_goal = mean(forced_failiure_pressure_distance_to_opposition_goal, na.rm = TRUE),
-            mean_possession_row_sum = mean(possession_row_sum))
-
-mean_oop_differences <- modelling_dataframe %>%
-  group_by(oop_shot_in_past_10_events) %>%
-  summarise(mean_turnover_distance_to_own_goal = mean(turnover_distance_to_own_goal, na.rm = TRUE),
-            percentage_failed_defensive_pressure = mean(replace(failed_defensive_pressure, is.na(failed_defensive_pressure), 0)),
-            mean_unsuccessful_pressure_distance_to_own_goal = mean(unsuccessful_pressure_distance_to_own_goal, na.rm = TRUE),
-            mean_oop_row_sum = mean(oop_row_sum))
-
-
-shot_distribution <- modelling_dataframe %>%
-  mutate(in_seconds = as.numeric(as.difftime(timestamp, format = "%H:%M:%OS"))) %>%
-  mutate(interval = ceiling(in_seconds/300)) %>%
-  group_by(match_id, possession_team, interval) %>%
-  summarise(number_of_shots = sum(!is.na(shot.statsbomb_xg), na.rm = TRUE))
-
-number_of_shots_mean <- mean(shot_distribution$number_of_shots)
-number_of_shots_variance <- var(shot_distribution$number_of_shots)
-
-histogram_of_shots <- ggplot(shot_distribution, aes(x = number_of_shots)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 6, fill = "#4A7C59", colour = "#FAF3DD") +
-  scale_x_continuous(
-    breaks = 0:5 # Specify tick marks for 0, 1, 2, 3, 4, and 5
-  ) +
-  ##stat_function(fun = function(x) dpois(round(x), lambda = number_of_shots_mean), geom = "point", n = 6, color = "red", size = 2) +
-  labs(
-    title = "Histogram of the Number of Shots",
-    subtitle = "For each 5-minute interval, for each team",
-    x = "Number of Shots",
-    y = "Density"
-  ) +
-  theme_minimal()
-
-ggsave("histogram_of_shots.png", plot = histogram_of_shots, dpi = 200)
-
-histogram_of_shots_with_poisson <- ggplot(shot_distribution, aes(x = number_of_shots)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 6, fill = "#4A7C59", colour = "#FAF3DD") +
-  scale_x_continuous(
-    breaks = 0:5 # Specify tick marks for 0, 1, 2, 3, 4, and 5
-  ) +
-  stat_function(fun = function(x) dpois(round(x), lambda = number_of_shots_mean), geom = "point", n = 6, color = "#CC441C", size = 2) +
-  labs(
-    title = "Histogram of the Number of Shots, with the fitted Poisson probability mass function",
-    subtitle = "For each 5-minute interval, for each team",
-    x = "Number of Shots",
-    y = "Density"
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(size = 11))
-
-ggsave("histogram_of_shots_with_poisson.png", plot = histogram_of_shots_with_poisson, dpi = 200)
-
-merged_shot_distribution <- shot_distribution %>%
-  group_by(match_id, interval) %>%
-  summarise(
-    team_1_shots = first(number_of_shots),
-    team_2_shots = ifelse(n() > 1, nth(number_of_shots, 2), 0),
-    .groups = "drop"
-  )
-
-correlation_of_shots <- cor(merged_shot_distribution$team_1_shots, merged_shot_distribution$team_2_shots, method = "pearson")
-
-change_timestamp <- function(df) {
-  df <- df %>%
-    mutate(timestamp = as_hms(timestamp)) %>%
-    filter(period != 5) %>%
-    group_by(match_id) %>%
-    mutate(
-      max_timestamp_1 = ifelse(any(period == 1), max(timestamp[period == 1], na.rm = TRUE), NA_real_),
-      timestamp = ifelse(period == 2, as_hms(timestamp + max_timestamp_1), timestamp)
-    ) %>%
-    ungroup()
-  
-  df <- df %>%
-    group_by(match_id) %>%
-    mutate(
-      max_timestamp_2 = ifelse(any(period == 2), max(timestamp[period == 2], na.rm = TRUE), NA_real_),
-      timestamp = ifelse(period == 3, as_hms(timestamp + max_timestamp_2), timestamp)
-    ) %>%
-    ungroup()
-  
-  df <- df %>%
-    group_by(match_id) %>%
-    mutate(
-      max_timestamp_3 = ifelse(any(period == 3), max(timestamp[period == 3], na.rm = TRUE), NA_real_),
-      timestamp = ifelse(period == 4, as_hms(timestamp + max_timestamp_3), timestamp)
-    ) %>%
-    ungroup()
-  
-  return(df)
-}
-
-### NOT WORKING IDK
+### not really 'own half' it is like a circle, maybe should change
 basic_modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
   mutate(timestamp = as_hms(as.POSIXct(timestamp, "GMT"))) %>%
   left_join(measure_of_defensive_area_occupied_dataframe, by = "id") %>%
@@ -269,17 +85,13 @@ basic_modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
   left_join(defenders_removed_dataframe, by = "id") %>%
   left_join(turnover_dataframe, by = "id") %>%
   left_join(pressure_forcing_failure_dataframe, by = "id") %>%
-  left_join(unsuccessful_pressure_dataframe, by = "id") %>%
   mutate(in_seconds = as.numeric(as.difftime(timestamp, format = "%H:%M:%OS"))) %>%
   mutate(interval = ceiling(in_seconds / 300)) %>%
   select(id, match_id, interval, team, possession_team.name.y, shot.statsbomb_xg, row_sum,
          progressive_action,
          number_of_defenders_removed,
          turnover_distance_to_own_goal,
-         pressure_forcing_failure,
-         forced_failiure_pressure_distance_to_opposition_goal,
-         failed_defensive_pressure,
-         unsuccessful_pressure_distance_to_own_goal) %>%
+         failure_from_opposition_pressure_distance_to_own_goal) %>%
   filter(!is.na(team)) %>%
   group_by(id) %>%
   mutate(other_row_sum = ifelse(row_number() == 1, lead(row_sum), lag(row_sum))) %>%
@@ -302,9 +114,20 @@ basic_modelling_dataframe <- change_timestamp(cleaned_dataframe) %>%
         min(turnover_distance_to_own_goal[team != possession_team.name.y], na.rm = TRUE)
       } else {
         NA
+      },
+    number_of_pressures_causing_failure_by_opposition = sum(!is.na(failure_from_opposition_pressure_distance_to_own_goal) & team != possession_team.name.y, na.rm = TRUE),
+    number_of_own_half_pressures_causing_failure_by_opposition = sum(failure_from_opposition_pressure_distance_to_own_goal <= 60 & team != possession_team.name.y, na.rm = TRUE),
+    closest_pressure_causing_failure_by_opposition_to_their_goal = 
+      if (any(team != possession_team.name.y & !is.na(failure_from_opposition_pressure_distance_to_own_goal))) {
+        min(failure_from_opposition_pressure_distance_to_own_goal[team != possession_team.name.y], na.rm = TRUE)
+      } else {
+        NA
       }
   ) %>%
   filter(!is.na(average_opposition_row_sum)) 
+
+
+############################################
 
 boxplot_of_opposition_MDAO_against_shots <- ggplot(basic_modelling_dataframe, aes(x = as.factor(number_of_shots), y = average_opposition_row_sum)) +
   geom_boxplot(fill = "#4A7C59") +

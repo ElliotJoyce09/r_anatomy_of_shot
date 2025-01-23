@@ -186,31 +186,16 @@ defensive_forced_pressures <- function(dataframe) {
   forced_failure_indicies <- which(dataframe$type.name %in% c("dispossessed", "miscontrol", "block", "error") |
                                      str_detect(dataframe$type.name, "incomplete|failed|clearance|blocked"))
   valid_indices <- pressure_indices[sapply(pressure_indices, function(i) (i + 1) %in% forced_failure_indicies)]
-  dataframe <- dataframe[valid_indices, ] %>%
-    mutate(pressure_forcing_failure = 1) %>%
-    mutate(x = map_dbl(location, 1), y = map_dbl(location, 2)) %>%
+  dataframe <- dataframe[valid_indices + 1, ] %>%
+  mutate(failure_location = ifelse(event.end_location != "NA" & event.end_location != "NULL", 
+                                   event.end_location, location)) %>%
+    mutate(x = map_dbl(failure_location, 1), y = map_dbl(failure_location, 2)) %>%
     mutate(x = if_else(team.name != possession_team.name, 120 - x, x),
            y = if_else(team.name != possession_team.name, 80 - y, y)) %>%
-    mutate(forced_failiure_pressure_distance_to_opposition_goal = sqrt((120 - x)^2 + (y - 40)^2)) %>%
-    select(id, pressure_forcing_failure, forced_failiure_pressure_distance_to_opposition_goal)
+    mutate(failure_from_opposition_pressure_distance_to_own_goal = sqrt(x^2 + (y - 40)^2)) %>%
+    select(id, failure_from_opposition_pressure_distance_to_own_goal)
 }
 
 
-unsuccessful_defensive_pressures <- function(dataframe) {
-  pressure_indices <- which(dataframe$type.name == "pressure" & 
-                              dataframe$team.name != dataframe$possession_team.name)
-  forced_failure_indicies <- which(dataframe$type.name %in% c("dispossessed", "miscontrol", "block", "error") |
-                                     str_detect(dataframe$type.name, "incomplete|failed|clearance|blocked"))
-  valid_indices <- pressure_indices[sapply(pressure_indices, function(i) (i + 1) %in% forced_failure_indicies)]
-  dataframe <- dataframe[-valid_indices, ] %>%
-    filter(type.name == "pressure") %>%
-    filter(team.name != possession_team.name) %>%
-    mutate(failed_defensive_pressure = 1) %>%
-    mutate(x = map_dbl(location, 1), y = map_dbl(location, 2)) %>%
-    mutate(x = if_else(team.name != possession_team.name, 120 - x, x),
-           y = if_else(team.name != possession_team.name, 80 - y, y)) %>%
-    mutate(unsuccessful_pressure_distance_to_own_goal = sqrt(x^2 + (y - 40)^2)) %>%
-    select(id, failed_defensive_pressure, unsuccessful_pressure_distance_to_own_goal)
-}
 
 
