@@ -210,3 +210,6 @@ modelling_dataframe <- measure_of_defensive_area_occupied_dataframe_intervals %>
     ),
     ~ replace_na(.x, sqrt(120 ^ 2 + 40 ^ 2))
   ))
+
+binary_modelling_dataframe <- modelling_dataframe %>%
+  mutate(shots_occur = ifelse(number_of_shots > 0, 1, 0))
