@@ -4,6 +4,7 @@ if (!require(tidyverse)) {
 }
 
 binary_modelling_dataframe <- binary_modelling_dataframe %>%
+  ungroup() %>%
   mutate(mdao_bin = ntile(average_MDAO, 20)) %>%
   mutate(opposition_mdao_bin = ntile(opposition_average_MDAO, 20)) %>%
   mutate(progressive_action_bin = ntile(number_of_progressive_actions, 20))
