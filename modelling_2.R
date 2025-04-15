@@ -21,6 +21,9 @@ training_binary_modelling_dataframe <- training_modelling_dataframe %>%
 testing_binary_modelling_dataframe <- testing_modelling_dataframe %>%
   mutate(shots_occur = ifelse(number_of_shots == 0, 0, 1))
 
+non_zero_response_modelling_dataframe <- modelling_dataframe %>%
+  filter(sum_of_non_penalty_expected_goals > 0)
+
 # the training dataset for the continuous response of the two-part model
 training_non_zero_response_modelling_dataframe <- training_modelling_dataframe %>%
   filter(sum_of_non_penalty_expected_goals > 0)

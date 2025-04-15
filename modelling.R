@@ -26,7 +26,6 @@ training_modelling_dataframe <- modelling_dataframe %>%
 negative_binomial_training_modelling_dataframe <- training_modelling_dataframe %>%
   dplyr::select(
     c(
-      "number_of_shots",
       "average_MDAO",
       "opposition_average_MDAO",
       "number_of_progressive_actions",
@@ -45,6 +44,9 @@ testing_modelling_dataframe <- modelling_dataframe %>%
 negative_binomial_testing_modelling_dataframe <- testing_modelling_dataframe %>%
   dplyr::select(
     c(
+      "match_id",
+      "team",
+      "interval",
       "number_of_shots",
       "average_MDAO",
       "opposition_average_MDAO",
