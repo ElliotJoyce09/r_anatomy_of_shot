@@ -54,9 +54,9 @@ cleaned_dataframe <- modify_statsbomb_events_dataframe(euro2024_events)
 
 # retrieves the most frequent 20 entries in type.name that contain "pass"
 frequent_pass_attempts_dataframe <- cleaned_dataframe %>%
-  filter(grepl("pass", type.name, ignore.case = TRUE)) %>%  
-  count(type.name, sort = TRUE) %>%                         
-  slice_max(n, n = 20) 
+  filter(grepl("pass", type.name, ignore.case = TRUE)) %>%
+  count(type.name, sort = TRUE) %>%
+  slice_max(n, n = 20)
 
 # retains the tracking data
 euro2024_360data <- free_allevents_360(euro2024matches, Parallel = TRUE) %>%
@@ -68,16 +68,16 @@ polygon_vector <- euro2024_360data %>%
 polygon_vector <- polygon_vector$visible_area[[1]]
 
 # the odd numbers of the vector are the x-coordinates, and the even are the y-coordinates
-polygon_dataframe <- data.frame(
-  x = 120 - polygon_vector[seq(1, length(polygon_vector), by = 2)],
-  y = polygon_vector[seq(2, length(polygon_vector), by = 2)]
-)
+polygon_dataframe <- data.frame(x = 120 - polygon_vector[seq(1, length(polygon_vector), by = 2)], y = polygon_vector[seq(2, length(polygon_vector), by = 2)])
 
 merged_dataframe <- join_360_data(cleaned_dataframe, euro2024_360data)
 
 # takes the locations and finds which are out of bounds of the pitch
 locations_matrix <- do.call(rbind, merged_dataframe$location)
-out_of_bounds <- locations_matrix[, 1] < 0 | locations_matrix[, 1] > 120 | locations_matrix[, 2] < 0 | locations_matrix[, 2] > 80
+out_of_bounds <- locations_matrix[, 1] < 0 |
+  locations_matrix[, 1] > 120 |
+  locations_matrix[, 2] < 0 |
+  locations_matrix[, 2] > 80
 
 measure_of_defensive_area_occupied_dataframe <- measure_of_defensive_area_occupied(merged_dataframe)
 measure_of_defensive_area_occupied_dataframe <- change_timestamp(measure_of_defensive_area_occupied_dataframe)
@@ -85,10 +85,12 @@ measure_of_defensive_area_occupied_dataframe_intervals <- measure_of_defensive_a
   mutate(interval = ceiling(timestamp / 300)) %>%
   group_by(match_id, timestamp) %>%
   mutate(other_row_sum = ifelse(row_number() == 1, lead(row_sum), lag(row_sum))) %>%
-  ungroup() %>% 
+  ungroup() %>%
   group_by(match_id, interval, team) %>%
-  summarise(average_MDAO = mean(row_sum, na.rm = TRUE),
-            opposition_average_MDAO = mean(other_row_sum, na.rm = TRUE))
+  summarise(
+    average_MDAO = mean(row_sum, na.rm = TRUE),
+    opposition_average_MDAO = mean(other_row_sum, na.rm = TRUE)
+  )
 
 mdao_possession_stats <- measure_of_defensive_area_occupied_dataframe %>%
   filter(team == possession_team.name) %>%
@@ -110,7 +112,9 @@ germany_scotland_mdao <- measure_of_defensive_area_occupied_dataframe %>%
   mutate(difference = -(germany - scotland)) %>%
   filter(!is.na(difference))
 
-loess_fit <- loess(difference ~ as.numeric(timestamp), data = germany_scotland_mdao, span = 0.1)
+loess_fit <- loess(difference ~ as.numeric(timestamp),
+                   data = germany_scotland_mdao,
+                   span = 0.1)
 
 germany_scotland_mdao <- germany_scotland_mdao %>%
   mutate(smooth = predict(loess_fit))
@@ -128,16 +132,22 @@ defenders_removed_dataframe <- change_timestamp(defenders_removed_dataframe)
 defenders_removed_dataframe_intervals <- defenders_removed_dataframe %>%
   mutate(interval = ceiling(timestamp / 300)) %>%
   group_by(match_id, interval, team.name) %>%
-  summarise(number_of_defender_removing_actions = n(),
-            number_of_defenders_removed_from_actions = sum(number_of_defenders_removed),
-            number_of_high_defender_removing_actions = sum(number_of_defenders_removed >= 5)) %>%
+  summarise(
+    number_of_defender_removing_actions = n(),
+    number_of_defenders_removed_from_actions = sum(number_of_defenders_removed),
+    number_of_high_defender_removing_actions = sum(number_of_defenders_removed >= 5)
+  ) %>%
   rename(team = team.name)
 
 turnover_dataframe <- turnovers(cleaned_dataframe)
 turnover_dataframe <- change_timestamp(turnover_dataframe)
 turnover_dataframe_intervals <- turnover_dataframe %>%
   group_by(match_id) %>%
-  mutate(team = ifelse(team.name == first(team.name), last(team.name), first(team.name))) %>%
+  mutate(team = ifelse(
+    team.name == first(team.name),
+    last(team.name),
+    first(team.name)
+  )) %>%
   ungroup() %>%
   mutate(interval = ceiling(timestamp / 300)) %>%
   group_by(match_id, interval, team) %>%
@@ -152,13 +162,15 @@ successful_pressures_dataframe <- change_timestamp(successful_pressures_datafram
 successful_pressures_dataframe_intervals <- successful_pressures_dataframe %>%
   mutate(interval = ceiling(timestamp / 300)) %>%
   group_by(match_id, interval, team.name) %>%
-  summarise(number_of_successful_pressures = n(),
-            number_of_successful_pressures_in_opposition_half = sum(successful_pressure_distance_to_opposition_goal <= 60),
-            successful_pressure_closest_to_opposition_goal = min(successful_pressure_distance_to_opposition_goal)) %>%
+  summarise(
+    number_of_successful_pressures = n(),
+    number_of_successful_pressures_in_opposition_half = sum(successful_pressure_distance_to_opposition_goal <= 60),
+    successful_pressure_closest_to_opposition_goal = min(successful_pressure_distance_to_opposition_goal)
+  ) %>%
   rename(team = team.name)
 
 expected_goals_dataframe_intervals <- change_timestamp(cleaned_dataframe) %>%
-  mutate(interval = ceiling(timestamp / 300)) %>% 
+  mutate(interval = ceiling(timestamp / 300)) %>%
   group_by(match_id, interval, team.name) %>%
   summarise(
     number_of_shots = sum(!is.na(shot.statsbomb_xg)),
@@ -168,20 +180,33 @@ expected_goals_dataframe_intervals <- change_timestamp(cleaned_dataframe) %>%
   rename(team = team.name)
 
 modelling_dataframe <- measure_of_defensive_area_occupied_dataframe_intervals %>%
-  left_join(progressive_actions_dataframe_intervals, by = c("match_id", "interval", "team")) %>%
-  left_join(defenders_removed_dataframe_intervals, by = c("match_id", "interval", "team")) %>%
-  left_join(turnover_dataframe_intervals, by = c("match_id", "interval", "team")) %>%
-  left_join(successful_pressures_dataframe_intervals, by = c("match_id", "interval", "team")) %>%
-  left_join(expected_goals_dataframe_intervals, by = c("match_id", "interval", "team")) %>%
-  mutate(across(c(number_of_progressive_actions, 
-                  number_of_defender_removing_actions, 
-                  number_of_defenders_removed_from_actions,
-                  number_of_high_defender_removing_actions,
-                  number_of_opposition_turnovers,
-                  number_of_opposition_turnovers_in_their_own_half,
-                  number_of_successful_pressures,
-                  number_of_successful_pressures_in_opposition_half), ~replace_na(.x, 0))) %>%
-  mutate(across(c(opposition_turnover_closest_to_their_own_goal, 
-                  successful_pressure_closest_to_opposition_goal), ~replace_na(.x, sqrt(120^2 + 40^2))))
-
-
+  left_join(progressive_actions_dataframe_intervals,
+            by = c("match_id", "interval", "team")) %>%
+  left_join(defenders_removed_dataframe_intervals,
+            by = c("match_id", "interval", "team")) %>%
+  left_join(turnover_dataframe_intervals,
+            by = c("match_id", "interval", "team")) %>%
+  left_join(successful_pressures_dataframe_intervals,
+            by = c("match_id", "interval", "team")) %>%
+  left_join(expected_goals_dataframe_intervals,
+            by = c("match_id", "interval", "team")) %>%
+  mutate(across(
+    c(
+      number_of_progressive_actions,
+      number_of_defender_removing_actions,
+      number_of_defenders_removed_from_actions,
+      number_of_high_defender_removing_actions,
+      number_of_opposition_turnovers,
+      number_of_opposition_turnovers_in_their_own_half,
+      number_of_successful_pressures,
+      number_of_successful_pressures_in_opposition_half
+    ),
+    ~ replace_na(.x, 0)
+  )) %>%
+  mutate(across(
+    c(
+      opposition_turnover_closest_to_their_own_goal,
+      successful_pressure_closest_to_opposition_goal
+    ),
+    ~ replace_na(.x, sqrt(120 ^ 2 + 40 ^ 2))
+  ))
